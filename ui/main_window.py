@@ -1,6 +1,6 @@
 from PyQt5.QtWidgets import QMainWindow, QLabel, QPushButton, QWidget, QHBoxLayout, QVBoxLayout, QStackedWidget
 from PyQt5.QtCore import Qt
-from .pages import HomePage, NewBetPage, BalancePage, StatisticsPage, SettingsPage
+from .pages import HomePage, NewBetPage, BalancePage, StatisticsPage, SettingsPage, HistoryPage
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -59,9 +59,10 @@ class MainWindow(QMainWindow):
         self.btn_new_bet = QPushButton("New Bet")
         self.btn_balance = QPushButton("Balance")
         self.btn_stats = QPushButton("Statistics")
+        self.btn_history = QPushButton("History")
         self.btn_settings = QPushButton("Settings")
 
-        for btn in [self.btn_home, self.btn_new_bet, self.btn_balance, self.btn_stats]:
+        for btn in [self.btn_home, self.btn_new_bet, self.btn_balance, self.btn_stats, self.btn_history]:
             btn.setStyleSheet(button_style)
             header_layout.addWidget(btn)
 
@@ -79,12 +80,14 @@ class MainWindow(QMainWindow):
         self.balance_page = BalancePage()
         self.stats_page = StatisticsPage()
         self.settings_page = SettingsPage()
+        self.history_page = HistoryPage()
 
         self.stacked_widget.addWidget(self.home_page)
         self.stacked_widget.addWidget(self.new_bet_page)
         self.stacked_widget.addWidget(self.balance_page)
         self.stacked_widget.addWidget(self.stats_page)
         self.stacked_widget.addWidget(self.settings_page)
+        self.stacked_widget.addWidget(self.history_page)
 
         # Add widgets to main layout
         main_layout.addWidget(header_widget)
@@ -99,6 +102,7 @@ class MainWindow(QMainWindow):
         self.btn_balance.clicked.connect(lambda: self.stacked_widget.setCurrentWidget(self.balance_page))
         self.btn_stats.clicked.connect(lambda: self.stacked_widget.setCurrentWidget(self.stats_page))
         self.btn_settings.clicked.connect(lambda: self.stacked_widget.setCurrentWidget(self.settings_page))
+        self.btn_history.clicked.connect(lambda: self.stacked_widget.setCurrentWidget(self.history_page))
 
         # Set initial page
         self.stacked_widget.setCurrentWidget(self.home_page)

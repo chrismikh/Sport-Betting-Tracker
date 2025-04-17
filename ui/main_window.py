@@ -1,5 +1,6 @@
-from PyQt5.QtWidgets import QMainWindow, QLabel, QPushButton, QWidget, QHBoxLayout
+from PyQt5.QtWidgets import QMainWindow, QLabel, QPushButton, QWidget, QHBoxLayout, QVBoxLayout, QStackedWidget
 from PyQt5.QtCore import Qt
+from .pages import HomePage, NewBetPage, BalancePage, StatisticsPage, SettingsPage
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -9,11 +10,16 @@ class MainWindow(QMainWindow):
         self.setFixedSize(self.size())  # Lock the window to this size
         self.init_ui()
 
-    # Header for the main window
     def init_ui(self):
-        # Create a QWidget to act as the header container
-        header_widget = QWidget(self)
-        header_widget.setGeometry(0, 0, 1300, 80)
+        # Create main widget and layout
+        main_widget = QWidget()
+        main_layout = QVBoxLayout(main_widget)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        # Create header
+        header_widget = QWidget()
+        header_widget.setFixedHeight(80)
         header_widget.setStyleSheet("background-color: #1e1e1e;")
 
         # Create layout for the header
@@ -32,10 +38,10 @@ class MainWindow(QMainWindow):
         """)
         header_layout.addWidget(title_label)
 
-        # Add stretch between title and buttons to push buttons to the right
+        # Add stretch between title and buttons
         header_layout.addSpacing(30)
 
-    # Buttons (inline)
+        # Buttons
         button_style = """
             QPushButton {
                 background-color: #2a2a2a;
@@ -59,8 +65,41 @@ class MainWindow(QMainWindow):
             btn.setStyleSheet(button_style)
             header_layout.addWidget(btn)
 
-        header_layout.addStretch()  # Push the settings button to the far right
+        header_layout.addStretch()
 
         self.btn_settings.setStyleSheet(button_style)
         header_layout.addWidget(self.btn_settings)
+
+        # Create stacked widget for content
+        self.stacked_widget = QStackedWidget()
+        
+        # Create and add pages
+        self.home_page = HomePage()
+        self.new_bet_page = NewBetPage()
+        self.balance_page = BalancePage()
+        self.stats_page = StatisticsPage()
+        self.settings_page = SettingsPage()
+
+        self.stacked_widget.addWidget(self.home_page)
+        self.stacked_widget.addWidget(self.new_bet_page)
+        self.stacked_widget.addWidget(self.balance_page)
+        self.stacked_widget.addWidget(self.stats_page)
+        self.stacked_widget.addWidget(self.settings_page)
+
+        # Add widgets to main layout
+        main_layout.addWidget(header_widget)
+        main_layout.addWidget(self.stacked_widget)
+
+        # Set the main widget
+        self.setCentralWidget(main_widget)
+
+        # Connect buttons to page switching
+        self.btn_home.clicked.connect(lambda: self.stacked_widget.setCurrentWidget(self.home_page))
+        self.btn_new_bet.clicked.connect(lambda: self.stacked_widget.setCurrentWidget(self.new_bet_page))
+        self.btn_balance.clicked.connect(lambda: self.stacked_widget.setCurrentWidget(self.balance_page))
+        self.btn_stats.clicked.connect(lambda: self.stacked_widget.setCurrentWidget(self.stats_page))
+        self.btn_settings.clicked.connect(lambda: self.stacked_widget.setCurrentWidget(self.settings_page))
+
+        # Set initial page
+        self.stacked_widget.setCurrentWidget(self.home_page)
         

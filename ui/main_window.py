@@ -104,6 +104,35 @@ class MainWindow(QMainWindow):
         self.btn_settings.clicked.connect(lambda: self.stacked_widget.setCurrentWidget(self.settings_page))
         self.btn_history.clicked.connect(lambda: self.stacked_widget.setCurrentWidget(self.history_page))
 
+        # Connect home page signals
+        self.home_page.new_bet_clicked.connect(lambda: self.stacked_widget.setCurrentWidget(self.new_bet_page))
+        self.home_page.statistics_clicked.connect(lambda: self.stacked_widget.setCurrentWidget(self.stats_page))
+        self.home_page.balance_clicked.connect(lambda: self.stacked_widget.setCurrentWidget(self.balance_page))
+        self.home_page.history_clicked.connect(lambda: self.stacked_widget.setCurrentWidget(self.history_page))
+
         # Set initial page
         self.stacked_widget.setCurrentWidget(self.home_page)
+        
+        # Update stats for the home page
+        self.home_page.update_stats(
+            total_bets=10,
+            wins=7,
+            losses=3,
+            profit_loss=150.50,
+            active_bets=2
+        )
+        
+        # Update recent bets for the home page
+        recent_bets = [
+            {
+                'match': 'Team A vs Team B',
+                'date': '2024-04-17',
+                'amount': 100.00,
+                'odds': 2.5,
+                'result': 'Won',
+                'profit_loss': 150.00
+            },
+            # ... more bets ...
+        ]
+        self.home_page.update_recent_bets(recent_bets)
         

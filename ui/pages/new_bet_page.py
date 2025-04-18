@@ -1,25 +1,29 @@
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QFormLayout, QHBoxLayout,
                             QLabel, QLineEdit, QComboBox, QRadioButton,
                             QButtonGroup, QTextEdit, QPushButton, QDoubleSpinBox,
-                            QFrame)
+                            QFrame, QMessageBox)
 from PyQt5.QtCore import Qt, pyqtSignal, QLocale
 from PyQt5.QtGui import QFont, QColor
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from ui.utils.formatters import Formatters
 from dataclasses import dataclass
 from datetime import datetime
+from database.bet_database import BetDatabase
+from data.bet_data import BetData
 
 @dataclass
-class BetData:
+class BetDataModel:
     """Data model for bet information"""
     category: str
     sport_game: str
-    tournament: str
     team_a: str
     team_b: str
+    tournament: str
     location: str
-    bet: str
     bet_type: str
+    target: str
+    pick: str
+    line: float
     odds: float
     stake: float
     result: str
@@ -38,63 +42,82 @@ class NewBetPage(QWidget):
     COLOR_ERROR = "#F44336"
     COLOR_SUCCESS = "#4CAF50"
     
-    # Category to location mapping
-    CATEGORY_LOCATIONS = {
-        "Sport": "Stadium/City:",
-        "Esport": "Map:"
-    }
-    
-    # Sport and Esport options
-    SPORT_OPTIONS = [
-        "Football", "Basketball", "Tennis", "Baseball", "Hockey",
-        "Cricket", "Rugby", "Golf", "Boxing", "MMA"
-    ]
-    
-    ESPORT_OPTIONS = [
-        "League of Legends", "Dota 2", "Counter-Strike", "Valorant",
-        "Overwatch", "Rocket League", "Fortnite", "Apex Legends",
-        "Starcraft", "Hearthstone"
-    ]
+    # All category, sport/game, and bet type data now comes from BetData in data/bet_data.py
     
     def __init__(self) -> None:
         super().__init__()
-        self.bet_data = BetData(
+        self.db = BetDatabase()
+        self.bet_data = BetDataModel(
             category="Sport",
             sport_game="",
-            tournament="",
             team_a="",
             team_b="",
+            tournament="",
             location="",
-            bet="",
-            bet_type="Prematch",
+            bet_type="",
+            target="",
+            pick="",
+            line=0.0,
             odds=1.0,
             stake=0.01,
             result=""
         )
         self.setup_ui()
         self.setup_connections()
+        self.load_dropdown_data()
+        self.update_bet_types()  # Initialize bet types based on default selection
         
     def setup_connections(self) -> None:
         """Setup signal connections for validation and preview"""
-        self.odds_input.valueChanged.connect(self.validate_and_update_preview)
-        self.stake_input.valueChanged.connect(self.validate_and_update_preview)
-        self.result_combo.currentTextChanged.connect(self.validate_and_update_preview)
+        # Connect sport/game changes
         self.sport_game_combo.currentTextChanged.connect(self.validate_and_update_preview)
-        self.tournament_input.textChanged.connect(self.validate_and_update_preview)
-        self.team_a_input.textChanged.connect(self.validate_and_update_preview)
-        self.team_b_input.textChanged.connect(self.validate_and_update_preview)
-        self.bet_input.textChanged.connect(self.validate_and_update_preview)
-        self.location_input.textChanged.connect(self.validate_and_update_preview)
+        self.sport_game_combo.currentTextChanged.connect(self.update_bet_types)
+        self.sport_game_combo.currentTextChanged.connect(self.load_dropdown_data)
+        
+        # Connect tournament and team changes
+        self.tournament_combo.editTextChanged.connect(self.validate_and_update_preview)
+        self.team_a_combo.editTextChanged.connect(self.validate_and_update_preview)
+        self.team_b_combo.editTextChanged.connect(self.validate_and_update_preview)
+        
+        # Connect location changes
+        self.location_combo.editTextChanged.connect(self.validate_and_update_preview)
+        
+        # Connect category changes
         self.category_combo.currentTextChanged.connect(self.validate_and_update_preview)
+        self.category_combo.currentTextChanged.connect(self.update_sport_game_label)
+        self.category_combo.currentTextChanged.connect(self.update_bet_types)
+        
+        # Connect bet type changes
+        self.bet_type_combo.currentTextChanged.connect(self.validate_and_update_preview)
+        self.bet_type_combo.currentTextChanged.connect(self.update_bet_details)
+        
+        # Connect bet input changes
+        self.bet_input.textChanged.connect(self.validate_and_update_preview)
+        self.bet_combo.currentTextChanged.connect(self.validate_and_update_preview)
+        
+        # Connect line changes
+        self.line_input.valueChanged.connect(self.validate_and_update_preview)
+        
+        # Connect bet type (live/prematch) changes
         self.live_radio.toggled.connect(self.validate_and_update_preview)
         self.prematch_radio.toggled.connect(self.validate_and_update_preview)
-        self.cash_out_amount.valueChanged.connect(self.validate_and_update_preview)
         
+        # Connect odds and stake changes
+        self.odds_input.valueChanged.connect(self.validate_and_update_preview)
+        self.stake_input.valueChanged.connect(self.validate_and_update_preview)
+        
+        # Connect result changes
+        self.result_combo.currentTextChanged.connect(self.validate_and_update_preview)
+        self.result_combo.currentTextChanged.connect(self.toggle_cash_out_amount)
+        
+        # Connect cash out amount changes
+        self.cash_out_amount.valueChanged.connect(self.validate_and_update_preview)
+
     def setup_ui(self) -> None:
         """Setup the UI components"""
         # Main container with fixed width and height
         container = QWidget()
-        container.setFixedWidth(700)
+        container.setFixedWidth(1200)  # Increased total width
         container.setMinimumHeight(600)
         container_layout = QVBoxLayout(container)
         container_layout.setContentsMargins(0, 0, 0, 0)
@@ -103,16 +126,57 @@ class NewBetPage(QWidget):
         # Create base fonts
         self.setup_fonts()
         
-        # Create layouts
-        main_layout = self.create_main_layout()
-        form_preview_layout = self.create_form_preview_layout(main_layout)
+        # Create horizontal layout for all sections
+        main_layout = QHBoxLayout()
+        main_layout.setSpacing(40)  # Increased spacing between sections
+        main_layout.setContentsMargins(40, 10, 40, 10)
         
-        # Add layouts to container
-        container_layout.addLayout(form_preview_layout)
-        container_layout.addStretch(3)
+        # Left Section - Match Information
+        left_container = QWidget()
+        left_container.setFixedWidth(350)  # Fixed width for match section
+        left_layout = QVBoxLayout(left_container)
+        left_layout.setSpacing(10)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        
+        match_title = QLabel("Match Information")
+        match_title.setFont(self.label_font)
+        match_title.setStyleSheet(f"color: {self.COLOR_TEXT}; font-weight: bold;")
+        left_layout.addWidget(match_title)
+        
+        match_group = self.create_match_section()
+        left_layout.addLayout(match_group)
+        left_layout.addStretch()
+        
+        main_layout.addWidget(left_container)
+        
+        # Middle Section - Bet Details
+        middle_container = QWidget()
+        middle_container.setFixedWidth(400)  # Fixed width for bet section
+        middle_layout = QVBoxLayout(middle_container)
+        middle_layout.setSpacing(10)
+        middle_layout.setContentsMargins(0, 0, 0, 0)
+        
+        bet_title = QLabel("Bet Details")
+        bet_title.setFont(self.label_font)
+        bet_title.setStyleSheet(f"color: {self.COLOR_TEXT}; font-weight: bold;")
+        middle_layout.addWidget(bet_title)
+        
+        bet_group = self.create_bet_section()
+        middle_layout.addLayout(bet_group)
+        middle_layout.addStretch()
+        
+        main_layout.addWidget(middle_container)
+        
+        # Right Section - Preview
+        preview_frame = self.create_preview_card()
+        main_layout.addWidget(preview_frame)
         
         # Add buttons
         button_container = self.create_button_container()
+        
+        # Add all sections to container
+        container_layout.addLayout(main_layout)
+        container_layout.addStretch(3)
         container_layout.addWidget(button_container)
         
         # Center the container in the window
@@ -148,34 +212,10 @@ class NewBetPage(QWidget):
         self.button_font.setPointSize(14)
         self.button_font.setBold(True)
         
-    def create_main_layout(self) -> QVBoxLayout:
-        """Create the main layout with title and form sections"""
-        main_layout = QVBoxLayout()
-        main_layout.setSpacing(10)
-        main_layout.setContentsMargins(40, 10, 40, 10)
-        
-        # Title
-        title_label = QLabel("New Bet")
-        title_label.setFont(self.title_font)
-        title_label.setStyleSheet(f"color: {self.COLOR_TEXT};")
-        title_label.setAlignment(Qt.AlignCenter)
-        title_label.setContentsMargins(0, 0, 0, 5)
-        main_layout.addWidget(title_label)
-        
-        # Match Information Section
-        match_group = self.create_match_section()
-        main_layout.addLayout(match_group)
-        
-        # Bet Details Section
-        bet_group = self.create_bet_section()
-        main_layout.addLayout(bet_group)
-        
-        return main_layout
-        
     def create_match_section(self) -> QFormLayout:
         """Create the match information section"""
         match_group = QFormLayout()
-        match_group.setSpacing(10)
+        match_group.setSpacing(15)
         match_group.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
         match_group.setContentsMargins(0, 0, 0, 8)
         
@@ -183,10 +223,10 @@ class NewBetPage(QWidget):
         category_label = QLabel("Category:")
         category_label.setFont(self.label_font)
         self.category_combo = QComboBox()
-        self.category_combo.addItems(self.CATEGORY_LOCATIONS.keys())
+        self.category_combo.addItems(BetData.get_categories())
         self.category_combo.currentTextChanged.connect(self.update_location_label)
         self.category_combo.currentTextChanged.connect(self.update_sport_game_label)
-        self.category_combo.setMinimumHeight(40)
+        self.category_combo.setMinimumHeight(45)
         self.category_combo.setFont(self.input_font)
         match_group.addRow(category_label, self.category_combo)
         
@@ -194,18 +234,19 @@ class NewBetPage(QWidget):
         self.sport_game_label = QLabel("Sport:")
         self.sport_game_label.setFont(self.label_font)
         self.sport_game_combo = QComboBox()
-        self.sport_game_combo.addItems(self.SPORT_OPTIONS)
-        self.sport_game_combo.setMinimumHeight(40)
+        self.sport_game_combo.addItems(BetData.get_sports())
+        self.sport_game_combo.setMinimumHeight(45)
         self.sport_game_combo.setFont(self.input_font)
         match_group.addRow(self.sport_game_label, self.sport_game_combo)
         
         # Tournament
         tournament_label = QLabel("Tournament:")
         tournament_label.setFont(self.label_font)
-        self.tournament_input = QLineEdit()
-        self.tournament_input.setMinimumHeight(40)
-        self.tournament_input.setFont(self.input_font)
-        match_group.addRow(tournament_label, self.tournament_input)
+        self.tournament_combo = QComboBox()
+        self.tournament_combo.setEditable(True)
+        self.tournament_combo.setMinimumHeight(45)
+        self.tournament_combo.setFont(self.input_font)
+        match_group.addRow(tournament_label, self.tournament_combo)
         
         # Match (Teams)
         match_label = QLabel("Match:")
@@ -213,73 +254,116 @@ class NewBetPage(QWidget):
         match_layout = QHBoxLayout()
         match_layout.setSpacing(10)
         
-        self.team_a_input = QLineEdit()
-        self.team_a_input.setPlaceholderText("Team A")
-        self.team_a_input.setMinimumHeight(40)
-        self.team_a_input.setFont(self.input_font)
-        match_layout.addWidget(self.team_a_input)
+        self.team_a_combo = QComboBox()
+        self.team_a_combo.setEditable(True)
+        self.team_a_combo.setPlaceholderText("Team A")
+        self.team_a_combo.setMinimumHeight(45)
+        self.team_a_combo.setFont(self.input_font)
+        match_layout.addWidget(self.team_a_combo)
         
-        self.team_b_input = QLineEdit()
-        self.team_b_input.setPlaceholderText("Team B")
-        self.team_b_input.setMinimumHeight(40)
-        self.team_b_input.setFont(self.input_font)
-        match_layout.addWidget(self.team_b_input)
+        vs_label = QLabel("vs")
+        vs_label.setFont(self.label_font)
+        vs_label.setAlignment(Qt.AlignCenter)
+        match_layout.addWidget(vs_label)
+        
+        self.team_b_combo = QComboBox()
+        self.team_b_combo.setEditable(True)
+        self.team_b_combo.setPlaceholderText("Team B")
+        self.team_b_combo.setMinimumHeight(45)
+        self.team_b_combo.setFont(self.input_font)
+        match_layout.addWidget(self.team_b_combo)
         
         match_group.addRow(match_label, match_layout)
         
         # Location
-        self.location_input = QLineEdit()
-        self.location_input.setMinimumHeight(40)
-        self.location_input.setFont(self.input_font)
-        self.location_label = QLabel(self.CATEGORY_LOCATIONS["Sport"])
+        self.location_label = QLabel(BetData.CATEGORY_LOCATIONS["Sport"])
         self.location_label.setFont(self.label_font)
-        match_group.addRow(self.location_label, self.location_input)
+        self.location_combo = QComboBox()
+        self.location_combo.setEditable(True)
+        self.location_combo.setMinimumHeight(45)
+        self.location_combo.setFont(self.input_font)
+        match_group.addRow(self.location_label, self.location_combo)
         
         return match_group
         
     def create_bet_section(self) -> QFormLayout:
         """Create the bet details section"""
         bet_group = QFormLayout()
-        bet_group.setSpacing(10)
+        bet_group.setSpacing(15)
         bet_group.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
         bet_group.setContentsMargins(0, 0, 0, 8)
         
-        # Bet
-        bet_label = QLabel("Bet:")
-        bet_label.setFont(self.label_font)
-        self.bet_input = QLineEdit()
-        self.bet_input.setMinimumHeight(40)
-        self.bet_input.setFont(self.input_font)
-        bet_group.addRow(bet_label, self.bet_input)
+        # Bet Type
+        bet_type_label = QLabel("Bet Type:")
+        bet_type_label.setFont(self.label_font)
+        self.bet_type_combo = QComboBox()
+        self.bet_type_combo.setMinimumHeight(45)
+        self.bet_type_combo.setFont(self.input_font)
+        bet_group.addRow(bet_type_label, self.bet_type_combo)
         
-        # Type (Live/Prematch)
-        type_label = QLabel("Type:")
-        type_label.setFont(self.label_font)
-        type_layout = QHBoxLayout()
-        type_layout.setSpacing(20)
-        self.type_group = QButtonGroup()
-        self.prematch_radio = QRadioButton("Prematch")
-        self.prematch_radio.setFont(self.input_font)
+        # Bet Section
+        self.bet_label = QLabel("Bet:")
+        self.bet_label.setFont(self.label_font)
+        
+        # Create a container for the bet input
+        bet_container = QWidget()
+        bet_layout = QHBoxLayout(bet_container)
+        bet_layout.setContentsMargins(0, 0, 0, 0)
+        bet_layout.setSpacing(0)
+        
+        # Create both input types but only show one at a time
+        self.bet_input = QLineEdit()
+        self.bet_input.setMinimumHeight(45)
+        self.bet_input.setFont(self.input_font)
+        
+        self.bet_combo = QComboBox()
+        self.bet_combo.setMinimumHeight(45)
+        self.bet_combo.setFont(self.input_font)
+        
+        bet_layout.addWidget(self.bet_input)
+        bet_layout.addWidget(self.bet_combo)
+        
+        bet_group.addRow(self.bet_label, bet_container)
+        
+        # Line Section
+        self.line_label = QLabel("Line:")
+        self.line_label.setFont(self.label_font)
+        self.line_input = QDoubleSpinBox()
+        self.line_input.setRange(-1000.0, 1000.0)
+        self.line_input.setSingleStep(0.5)
+        self.line_input.setDecimals(2)
+        self.line_input.setMinimumHeight(45)
+        self.line_input.setFont(self.input_font)
+        self.line_input.setPrefix("Line: ")
+        bet_group.addRow(self.line_label, self.line_input)
+        
+        # Bet Type (Live/Prematch)
+        bet_type_container = QWidget()
+        bet_type_layout = QHBoxLayout(bet_type_container)
+        bet_type_layout.setContentsMargins(0, 0, 0, 0)
+        bet_type_layout.setSpacing(10)
+        
         self.live_radio = QRadioButton("Live")
         self.live_radio.setFont(self.input_font)
+        self.prematch_radio = QRadioButton("Prematch")
+        self.prematch_radio.setFont(self.input_font)
         self.prematch_radio.setChecked(True)
-        self.type_group.addButton(self.prematch_radio)
-        self.type_group.addButton(self.live_radio)
-        type_layout.addWidget(self.prematch_radio)
-        type_layout.addWidget(self.live_radio)
-        bet_group.addRow(type_label, type_layout)
+        
+        bet_type_layout.addWidget(self.live_radio)
+        bet_type_layout.addWidget(self.prematch_radio)
+        bet_type_layout.addStretch()
+        
+        bet_group.addRow("Type:", bet_type_container)
         
         # Odds
         odds_label = QLabel("Odds:")
         odds_label.setFont(self.label_font)
         self.odds_input = QDoubleSpinBox()
         self.odds_input.setRange(1.0, 1000.0)
-        self.odds_input.setSingleStep(0.01)
+        self.odds_input.setSingleStep(0.1)
         self.odds_input.setDecimals(2)
-        self.odds_input.setMinimumHeight(40)
+        self.odds_input.setMinimumHeight(45)
         self.odds_input.setFont(self.input_font)
-        self.odds_input.setLocale(QLocale(QLocale.English))
-        self.odds_input.setToolTip("Decimal format, e.g. 2.50")
         bet_group.addRow(odds_label, self.odds_input)
         
         # Stake
@@ -287,69 +371,45 @@ class NewBetPage(QWidget):
         stake_label.setFont(self.label_font)
         self.stake_input = QDoubleSpinBox()
         self.stake_input.setRange(0.01, 1000000.0)
-        self.stake_input.setSingleStep(1.0)
+        self.stake_input.setSingleStep(0.01)
         self.stake_input.setDecimals(2)
-        self.stake_input.setMinimumHeight(40)
+        self.stake_input.setMinimumHeight(45)
         self.stake_input.setFont(self.input_font)
-        self.stake_input.setLocale(QLocale(QLocale.English))
         self.stake_input.setPrefix(Formatters.CURRENCY)
-        self.stake_input.setToolTip("Enter the amount you want to bet")
         bet_group.addRow(stake_label, self.stake_input)
         
         # Result
         result_label = QLabel("Result:")
         result_label.setFont(self.label_font)
         self.result_combo = QComboBox()
-        self.result_combo.addItems(["", "Won", "Lost", "Cashed Out"])
-        self.result_combo.currentTextChanged.connect(self.toggle_cash_out_amount)
-        self.result_combo.setMinimumHeight(40)
+        self.result_combo.addItems(["Win", "Lose", "Cashed Out"])
+        self.result_combo.setMinimumHeight(45)
         self.result_combo.setFont(self.input_font)
-        self.result_combo.setToolTip("Select the outcome of your bet")
         bet_group.addRow(result_label, self.result_combo)
         
         # Cash Out Amount
-        self.cash_out_label = QLabel("Cash Out Amount:")
-        self.cash_out_label.setFont(self.label_font)
+        self.cash_out_container = QWidget()
+        cash_out_layout = QHBoxLayout(self.cash_out_container)
+        cash_out_layout.setContentsMargins(0, 0, 0, 0)
+        cash_out_layout.setSpacing(0)
+        
+        cash_out_label = QLabel("Cash Out:")
+        cash_out_label.setFont(self.label_font)
         self.cash_out_amount = QDoubleSpinBox()
         self.cash_out_amount.setRange(0.01, 1000000.0)
-        self.cash_out_amount.setSingleStep(1.0)
+        self.cash_out_amount.setSingleStep(0.01)
         self.cash_out_amount.setDecimals(2)
-        self.cash_out_amount.setMinimumHeight(40)
+        self.cash_out_amount.setMinimumHeight(45)
         self.cash_out_amount.setFont(self.input_font)
+        self.cash_out_amount.setPrefix(Formatters.CURRENCY)
         
-        cash_out_container = QWidget()
-        cash_out_layout = QFormLayout(cash_out_container)
-        cash_out_layout.setContentsMargins(0, 0, 0, 0)
-        cash_out_layout.setSpacing(10)
-        cash_out_layout.addRow(self.cash_out_label, self.cash_out_amount)
-        self.cash_out_container = cash_out_container
+        cash_out_layout.addWidget(cash_out_label)
+        cash_out_layout.addWidget(self.cash_out_amount)
         
-        bet_group.addRow(cash_out_container)
+        bet_group.addRow("", self.cash_out_container)
         self.cash_out_container.setVisible(False)
         
         return bet_group
-        
-    def create_form_preview_layout(self, main_layout: QVBoxLayout) -> QHBoxLayout:
-        """Create the layout containing the form and preview"""
-        form_preview_layout = QHBoxLayout()
-        form_preview_layout.setSpacing(40)
-        
-        # Form container
-        form_container = QWidget()
-        form_container.setFixedWidth(380)
-        form_container_layout = QVBoxLayout(form_container)
-        form_container_layout.setContentsMargins(0, 0, 0, 0)
-        form_container_layout.addLayout(main_layout)
-        
-        # Preview Card
-        preview_frame = self.create_preview_card()
-        
-        # Add form and preview to layout
-        form_preview_layout.addWidget(form_container)
-        form_preview_layout.addStretch(2)
-        form_preview_layout.addWidget(preview_frame)
-        
-        return form_preview_layout
         
     def create_preview_card(self) -> QFrame:
         """Create the preview card"""
@@ -451,19 +511,21 @@ class NewBetPage(QWidget):
         
     def update_location_label(self, category: str) -> None:
         """Update the location label based on the selected category"""
-        self.location_label.setText(self.CATEGORY_LOCATIONS.get(category, "Location"))
+        self.location_label.setText(BetData.CATEGORY_LOCATIONS.get(category, "Location"))
         
     def update_sport_game_label(self, category: str) -> None:
         """Update the sport/game label and options based on the selected category"""
         if category == "Sport":
             self.sport_game_label.setText("Sport:")
             self.sport_game_combo.clear()
-            self.sport_game_combo.addItems(self.SPORT_OPTIONS)
+            self.sport_game_combo.addItems(BetData.get_sports())
         else:  # Esport
             self.sport_game_label.setText("Game:")
             self.sport_game_combo.clear()
-            self.sport_game_combo.addItems(self.ESPORT_OPTIONS)
-        
+            self.sport_game_combo.addItems(BetData.get_esports())
+        self.update_bet_types()  # Update bet types when category changes
+        self.load_dropdown_data()  # Reload dropdown data when category changes
+
     def toggle_cash_out_amount(self, result: str) -> None:
         """Show/hide cash out amount field based on result selection"""
         is_cashed_out = result == "Cashed Out"
@@ -481,24 +543,46 @@ class NewBetPage(QWidget):
         bet_data = {
             'category': self.category_combo.currentText(),
             'sport_game': self.sport_game_combo.currentText(),
-            'tournament': self.tournament_input.text(),
-            'team_a': self.team_a_input.text(),
-            'team_b': self.team_b_input.text(),
-            'location': self.location_input.text(),
-            'bet': self.bet_input.text(),
-            'type': 'Live' if self.live_radio.isChecked() else 'Prematch',
+            'team_a': self.team_a_combo.currentText(),
+            'team_b': self.team_b_combo.currentText(),
+            'tournament': self.tournament_combo.currentText(),
+            'location': self.location_combo.currentText(),
+            'bet_type': self.bet_type_combo.currentText(),
+            'target': self.target_combo.currentText(),
+            'pick': self.pick_input.text(),
+            'line': self.line_input.value(),
             'odds': self.odds_input.value(),
             'stake': self.stake_input.value(),
             'result': self.result_combo.currentText(),
             'cash_out_amount': self.cash_out_amount.value() if self.result_combo.currentText() == "Cashed Out" else None
         }
         
+        # Save to database
+        bet_id = self.db.add_bet(bet_data)
+        
+        if bet_id == -1:
+            QMessageBox.critical(
+                self,
+                "Error",
+                "Failed to save bet to database. Please try again."
+            )
+            return
+            
+        # Show success message
+        QMessageBox.information(
+            self,
+            "Success",
+            f"Bet has been saved successfully with ID: {bet_id}"
+        )
+        
         # Emit signal with bet data
         self.bet_added.emit(bet_data)
         
         # Reset form
         self.reset_form()
-        
+        # Reload dropdown data to include new entries
+        self.load_dropdown_data()
+
     def handle_cancel(self) -> None:
         """Handle the cancel button click"""
         self.reset_form()
@@ -506,10 +590,11 @@ class NewBetPage(QWidget):
     def validate_form(self) -> bool:
         """Validate the form data"""
         required_fields = [
-            (self.tournament_input, "Tournament"),
-            (self.team_a_input, "Team A"),
-            (self.team_b_input, "Team B"),
-            (self.bet_input, "Bet"),
+            (self.tournament_combo, "Tournament"),
+            (self.team_a_combo, "Team A"),
+            (self.team_b_combo, "Team B"),
+            (self.target_combo, "Target"),
+            (self.pick_input, "Pick"),
             (self.odds_input, "Odds"),
             (self.stake_input, "Stake")
         ]
@@ -532,11 +617,14 @@ class NewBetPage(QWidget):
     def reset_form(self) -> None:
         """Reset the form to its initial state"""
         self.category_combo.setCurrentIndex(0)
-        self.tournament_input.clear()
-        self.team_a_input.clear()
-        self.team_b_input.clear()
-        self.location_input.clear()
-        self.bet_input.clear()
+        self.tournament_combo.setCurrentText("")
+        self.team_a_combo.setCurrentText("")
+        self.team_b_combo.setCurrentText("")
+        self.location_combo.setCurrentText("")
+        self.bet_type_combo.setCurrentIndex(0)
+        self.target_combo.clear()
+        self.pick_input.clear()
+        self.line_input.setValue(0.0)
         self.prematch_radio.setChecked(True)
         self.odds_input.setValue(1.0)
         self.stake_input.setValue(0.01)
@@ -546,34 +634,31 @@ class NewBetPage(QWidget):
 
     def validate_and_update_preview(self) -> None:
         """Validate inputs and update preview"""
-        # Validate odds and stake
-        odds_valid = self.odds_input.value() >= 1.0
-        stake_valid = self.stake_input.value() > 0
-        
-        # Update input styles
-        odds_style = f"border: 1px solid {self.COLOR_ERROR};" if not odds_valid else ""
-        stake_style = f"border: 1px solid {self.COLOR_ERROR};" if not stake_valid else ""
-        
-        self.odds_input.setStyleSheet(odds_style)
-        self.stake_input.setStyleSheet(stake_style)
-        
-        # Update preview
+        # Get current values
         category = self.category_combo.currentText()
         sport_game = self.sport_game_combo.currentText()
-        tournament = self.tournament_input.text()
-        team_a = self.team_a_input.text()
-        team_b = self.team_b_input.text()
-        location = self.location_input.text()
-        bet = self.bet_input.text()
-        bet_type = "Live" if self.live_radio.isChecked() else "Prematch"
+        tournament = self.tournament_combo.currentText()
+        team_a = self.team_a_combo.currentText()
+        team_b = self.team_b_combo.currentText()
+        location = self.location_combo.currentText()
+        bet_type = self.bet_type_combo.currentText()
+        line = self.line_input.value()
         odds = self.odds_input.value()
         stake = self.stake_input.value()
         result = self.result_combo.currentText()
+        bet_type_radio = "Live" if self.live_radio.isChecked() else "Prematch"
         cash_out = self.cash_out_amount.value() if result == "Cashed Out" else None
         
+        # Get bet value based on input type
+        bet_value = ""
+        if self.bet_combo.isVisible():
+            bet_value = self.bet_combo.currentText()
+        else:
+            bet_value = self.bet_input.text()
+        
+        # Build preview text
         preview_text = []
         if sport_game:
-            # Show either Sport or Game based on category
             label = "Sport:" if category == "Sport" else "Game:"
             preview_text.append(f"{label} {sport_game}")
         if tournament:
@@ -584,9 +669,16 @@ class NewBetPage(QWidget):
         if location:
             location_label = "Stadium/City:" if category == "Sport" else "Map:"
             preview_text.append(f"{location_label} {location}")
-        if bet:
-            preview_text.append(f"Bet: {bet}")
-        preview_text.append(f"Type: {bet_type}")
+        if bet_type:
+            preview_text.append(f"Bet Type: {bet_type}")
+            if bet_value or line != 0:
+                bet_details = []
+                if bet_value:
+                    bet_details.append(bet_value)
+                if line != 0:
+                    bet_details.append(f"Line: {line}")
+                preview_text.append(f"Bet: {' '.join(bet_details)}")
+        preview_text.append(f"Type: {bet_type_radio}")
         if odds >= 1.0:
             preview_text.append(f"Odds: {odds:.2f}")
         if stake > 0:
@@ -596,4 +688,118 @@ class NewBetPage(QWidget):
             if result == "Cashed Out" and cash_out is not None:
                 preview_text.append(f"Cash Out: {Formatters.CURRENCY}{cash_out:.2f}")
         
-        self.preview_content.setText("\n".join(preview_text)) 
+        # Update preview
+        self.preview_content.setText("\n".join(preview_text))
+
+    def load_dropdown_data(self) -> None:
+        """Load data for dropdowns from database and static data"""
+        # Get current sport/game
+        sport_game = self.sport_game_combo.currentText()
+        if not sport_game:
+            return
+
+        # Clear existing items
+        self.team_a_combo.clear()
+        self.team_b_combo.clear()
+        self.tournament_combo.clear()
+        self.location_combo.clear()
+
+        # Load static data first
+        static_teams = BetData.get_teams(sport_game)
+        static_tournaments = BetData.get_tournaments(sport_game)
+        static_locations = BetData.get_locations(sport_game)
+
+        # Add static teams
+        for team in static_teams:
+            self.team_a_combo.addItem(team)
+            self.team_b_combo.addItem(team)
+
+        # Add static tournaments
+        for tournament in static_tournaments:
+            self.tournament_combo.addItem(tournament)
+
+        # Add static locations
+        for location in static_locations:
+            self.location_combo.addItem(location)
+
+        # Load and add database data
+        teams = self.db.get_all_teams()
+        for _, name in teams:
+            if not any(name == self.team_a_combo.itemText(i) for i in range(self.team_a_combo.count())):
+                self.team_a_combo.addItem(name)
+                self.team_b_combo.addItem(name)
+
+        tournaments = self.db.get_all_tournaments()
+        for _, name in tournaments:
+            if not any(name == self.tournament_combo.itemText(i) for i in range(self.tournament_combo.count())):
+                self.tournament_combo.addItem(name)
+
+        locations = self.db.get_all_locations()
+        for _, name in locations:
+            if not any(name == self.location_combo.itemText(i) for i in range(self.location_combo.count())):
+                self.location_combo.addItem(name)
+
+    def update_bet_types(self) -> None:
+        """Update bet types based on selected category and sport/game"""
+        category = self.category_combo.currentText()
+        sport_game = self.sport_game_combo.currentText()
+        
+        self.bet_type_combo.clear()
+        
+        bet_types = BetData.get_bet_types(sport_game)
+        for bet_type, description in bet_types:
+            self.bet_type_combo.addItem(bet_type)
+            self.bet_type_combo.setItemData(self.bet_type_combo.count() - 1, description, Qt.ToolTipRole)
+
+    def update_target_options(self) -> None:
+        """Update target options based on selected bet type and sport/game"""
+        sport_game = self.sport_game_combo.currentText()
+        bet_type = self.bet_type_combo.currentText()
+        
+        self.target_combo.clear()
+        target_options = BetData.get_target_options(sport_game, bet_type)
+        
+        if target_options:
+            self.target_combo.addItems(target_options)
+            self.target_combo.setEditable(False)  # Disable custom input when options are available
+        else:
+            self.target_combo.setEditable(True)  # Enable custom input when no options are available
+            self.target_combo.setPlaceholderText("Enter target (e.g., Full Time, First Half, Map 1)")
+
+    def update_bet_details(self) -> None:
+        """Update bet details fields based on selected bet type"""
+        sport_game = self.sport_game_combo.currentText()
+        bet_type = self.bet_type_combo.currentText()
+        
+        # Get section requirements for this bet type
+        requirements = BetData.get_section_requirements(sport_game, bet_type)
+        
+        # Update section visibility
+        self.location_combo.setVisible(requirements["location"])
+        self.location_label.setVisible(requirements["location"])
+        
+        self.line_input.setVisible(requirements["line"])
+        self.line_input.setPrefix("Line: " if requirements["line"] else "")
+        
+        self.bet_label.setVisible(requirements["bet"])
+        self.bet_input.setVisible(False)
+        self.bet_combo.setVisible(False)
+        
+        # Get bet options
+        bet_options = BetData.get_bet_options(sport_game, bet_type)
+        
+        if bet_options["type"] == "dropdown":
+            self.bet_combo.setVisible(True)
+            self.bet_combo.clear()
+            self.bet_combo.addItems(bet_options["options"])
+        else:
+            self.bet_input.setVisible(True)
+            self.bet_input.setPlaceholderText(bet_options["placeholder"])
+        
+        # Update preview to reflect changes
+        self.validate_and_update_preview()
+
+    def __del__(self):
+        """Cleanup when the page is destroyed"""
+        if hasattr(self, 'db'):
+            self.db.close() 

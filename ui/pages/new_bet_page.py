@@ -1,7 +1,7 @@
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QFormLayout, QHBoxLayout,
                             QLabel, QLineEdit, QComboBox, QRadioButton,
                             QButtonGroup, QTextEdit, QPushButton, QDoubleSpinBox,
-                            QFrame, QMessageBox)
+                            QFrame, QMessageBox, QInputDialog)
 from PyQt5.QtCore import Qt, pyqtSignal, QLocale
 from PyQt5.QtGui import QFont, QColor
 from typing import Dict, Any, Optional, List
@@ -9,7 +9,6 @@ from ui.utils.formatters import Formatters
 from dataclasses import dataclass
 from datetime import datetime
 from database.bet_database import BetDatabase
-from data.bet_data import BetData
 
 @dataclass
 class BetDataModel:
@@ -42,11 +41,11 @@ class NewBetPage(QWidget):
     COLOR_ERROR = "#F44336"
     COLOR_SUCCESS = "#4CAF50"
     
-    # All category, sport/game, and bet type data now comes from BetData in data/bet_data.py
-    
     def __init__(self) -> None:
         super().__init__()
         self.db = BetDatabase()
+        self.selected_category = "Sport"
+        self.selected_sport_game_id = None
         self.bet_data = BetDataModel(
             category="Sport",
             sport_game="",
@@ -64,53 +63,27 @@ class NewBetPage(QWidget):
         )
         self.setup_ui()
         self.setup_connections()
-        self.load_dropdown_data()
-        self.update_bet_types()  # Initialize bet types based on default selection
+        self.load_categories()
         
     def setup_connections(self) -> None:
         """Setup signal connections for validation and preview"""
-        # Connect sport/game changes
-        self.sport_game_combo.currentTextChanged.connect(self.validate_and_update_preview)
-        self.sport_game_combo.currentTextChanged.connect(self.update_bet_types)
-        self.sport_game_combo.currentTextChanged.connect(self.load_dropdown_data)
-        
-        # Connect tournament and team changes
+        self.category_combo.currentTextChanged.connect(self.load_sport_games)
+        self.sport_game_combo.currentTextChanged.connect(self.on_sport_game_changed)
         self.tournament_combo.editTextChanged.connect(self.validate_and_update_preview)
         self.team_a_combo.editTextChanged.connect(self.validate_and_update_preview)
         self.team_b_combo.editTextChanged.connect(self.validate_and_update_preview)
-        
-        # Connect location changes
         self.location_combo.editTextChanged.connect(self.validate_and_update_preview)
-        
-        # Connect category changes
-        self.category_combo.currentTextChanged.connect(self.validate_and_update_preview)
-        self.category_combo.currentTextChanged.connect(self.update_sport_game_label)
-        self.category_combo.currentTextChanged.connect(self.update_bet_types)
-        
-        # Connect bet type changes
         self.bet_type_combo.currentTextChanged.connect(self.validate_and_update_preview)
         self.bet_type_combo.currentTextChanged.connect(self.update_bet_details)
-        
-        # Connect bet input changes
         self.bet_input.textChanged.connect(self.validate_and_update_preview)
         self.bet_combo.currentTextChanged.connect(self.validate_and_update_preview)
-        
-        # Connect line changes
         self.line_input.valueChanged.connect(self.validate_and_update_preview)
-        
-        # Connect bet type (live/prematch) changes
         self.live_radio.toggled.connect(self.validate_and_update_preview)
         self.prematch_radio.toggled.connect(self.validate_and_update_preview)
-        
-        # Connect odds and stake changes
         self.odds_input.valueChanged.connect(self.validate_and_update_preview)
         self.stake_input.valueChanged.connect(self.validate_and_update_preview)
-        
-        # Connect result changes
         self.result_combo.currentTextChanged.connect(self.validate_and_update_preview)
         self.result_combo.currentTextChanged.connect(self.toggle_cash_out_amount)
-        
-        # Connect cash out amount changes
         self.cash_out_amount.valueChanged.connect(self.validate_and_update_preview)
 
     def setup_ui(self) -> None:
@@ -213,32 +186,28 @@ class NewBetPage(QWidget):
         self.button_font.setBold(True)
         
     def create_match_section(self) -> QFormLayout:
-        """Create the match information section"""
+        """Create the match information section (Football only)"""
         match_group = QFormLayout()
         match_group.setSpacing(15)
         match_group.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
         match_group.setContentsMargins(0, 0, 0, 8)
-        
+
         # Category
         category_label = QLabel("Category:")
         category_label.setFont(self.label_font)
         self.category_combo = QComboBox()
-        self.category_combo.addItems(BetData.get_categories())
-        self.category_combo.currentTextChanged.connect(self.update_location_label)
-        self.category_combo.currentTextChanged.connect(self.update_sport_game_label)
         self.category_combo.setMinimumHeight(45)
         self.category_combo.setFont(self.input_font)
         match_group.addRow(category_label, self.category_combo)
-        
+
         # Sport/Game
-        self.sport_game_label = QLabel("Sport:")
+        self.sport_game_label = QLabel("Sport/Game:")
         self.sport_game_label.setFont(self.label_font)
         self.sport_game_combo = QComboBox()
-        self.sport_game_combo.addItems(BetData.get_sports())
         self.sport_game_combo.setMinimumHeight(45)
         self.sport_game_combo.setFont(self.input_font)
         match_group.addRow(self.sport_game_label, self.sport_game_combo)
-        
+
         # Tournament
         tournament_label = QLabel("Tournament:")
         tournament_label.setFont(self.label_font)
@@ -247,43 +216,43 @@ class NewBetPage(QWidget):
         self.tournament_combo.setMinimumHeight(45)
         self.tournament_combo.setFont(self.input_font)
         match_group.addRow(tournament_label, self.tournament_combo)
-        
+
         # Match (Teams)
         match_label = QLabel("Match:")
         match_label.setFont(self.label_font)
         match_layout = QHBoxLayout()
         match_layout.setSpacing(10)
-        
+
         self.team_a_combo = QComboBox()
         self.team_a_combo.setEditable(True)
         self.team_a_combo.setPlaceholderText("Team A")
         self.team_a_combo.setMinimumHeight(45)
         self.team_a_combo.setFont(self.input_font)
         match_layout.addWidget(self.team_a_combo)
-        
+
         vs_label = QLabel("vs")
         vs_label.setFont(self.label_font)
         vs_label.setAlignment(Qt.AlignCenter)
         match_layout.addWidget(vs_label)
-        
+
         self.team_b_combo = QComboBox()
         self.team_b_combo.setEditable(True)
         self.team_b_combo.setPlaceholderText("Team B")
         self.team_b_combo.setMinimumHeight(45)
         self.team_b_combo.setFont(self.input_font)
         match_layout.addWidget(self.team_b_combo)
-        
+
         match_group.addRow(match_label, match_layout)
-        
+
         # Location
-        self.location_label = QLabel(BetData.CATEGORY_LOCATIONS["Sport"])
+        self.location_label = QLabel("Stadium/City/Map:")
         self.location_label.setFont(self.label_font)
         self.location_combo = QComboBox()
         self.location_combo.setEditable(True)
         self.location_combo.setMinimumHeight(45)
         self.location_combo.setFont(self.input_font)
         match_group.addRow(self.location_label, self.location_combo)
-        
+
         return match_group
         
     def create_bet_section(self) -> QFormLayout:
@@ -509,22 +478,136 @@ class NewBetPage(QWidget):
         
         self.setStyleSheet(input_style)
         
-    def update_location_label(self, category: str) -> None:
-        """Update the location label based on the selected category"""
-        self.location_label.setText(BetData.CATEGORY_LOCATIONS.get(category, "Location"))
-        
-    def update_sport_game_label(self, category: str) -> None:
-        """Update the sport/game label and options based on the selected category"""
-        if category == "Sport":
-            self.sport_game_label.setText("Sport:")
-            self.sport_game_combo.clear()
-            self.sport_game_combo.addItems(BetData.get_sports())
-        else:  # Esport
-            self.sport_game_label.setText("Game:")
-            self.sport_game_combo.clear()
-            self.sport_game_combo.addItems(BetData.get_esports())
-        self.update_bet_types()  # Update bet types when category changes
-        self.load_dropdown_data()  # Reload dropdown data when category changes
+    def load_categories(self):
+        self.category_combo.clear()
+        categories = set([cat for _, _, cat in self.db.get_all_sport_games()])
+        for cat in sorted(categories):
+            self.category_combo.addItem(cat)
+        self.category_combo.setEnabled(True)
+        self.category_combo.setCurrentText("Sport")
+        self.load_sport_games()
+
+    def load_sport_games(self):
+        category = self.category_combo.currentText()
+        self.sport_game_combo.clear()
+        sport_games = self.db.get_all_sport_games(category)
+        for sg_id, name, _ in sport_games:
+            self.sport_game_combo.addItem(name)
+        if sport_games:
+            self.sport_game_combo.setCurrentIndex(0)
+            self.selected_sport_game_id = sport_games[0][0]
+        else:
+            self.selected_sport_game_id = None
+        self.load_dropdown_data()
+        self.update_bet_types()
+
+    def on_sport_game_changed(self):
+        # Update selected_sport_game_id
+        category = self.category_combo.currentText()
+        sport_game_name = self.sport_game_combo.currentText()
+        sport_games = self.db.get_all_sport_games(category)
+        for sg_id, name, _ in sport_games:
+            if name == sport_game_name:
+                self.selected_sport_game_id = sg_id
+                break
+        else:
+            self.selected_sport_game_id = None
+        self.load_dropdown_data()
+        self.update_bet_types()
+
+    def load_dropdown_data(self) -> None:
+        sport_game_id = self.selected_sport_game_id
+        if not sport_game_id:
+            return
+        self.team_a_combo.clear()
+        self.team_b_combo.clear()
+        self.tournament_combo.clear()
+        self.location_combo.clear()
+        # Load teams
+        teams = self.db.get_teams_for_sport_game(sport_game_id)
+        for _, name in teams:
+            self.team_a_combo.addItem(name)
+            self.team_b_combo.addItem(name)
+        self.team_a_combo.addItem("Add new team...")
+        self.team_b_combo.addItem("Add new team...")
+        self.team_a_combo.activated.connect(lambda idx: self.handle_add_new_option(self.team_a_combo, 'team'))
+        self.team_b_combo.activated.connect(lambda idx: self.handle_add_new_option(self.team_b_combo, 'team'))
+        # Load tournaments
+        tournaments = self.db.get_tournaments_for_sport_game(sport_game_id)
+        for _, name in tournaments:
+            self.tournament_combo.addItem(name)
+        self.tournament_combo.addItem("Add new tournament...")
+        self.tournament_combo.activated.connect(lambda idx: self.handle_add_new_option(self.tournament_combo, 'tournament'))
+        # Load locations
+        locations = self.db.get_locations_for_sport_game(sport_game_id)
+        for _, name in locations:
+            self.location_combo.addItem(name)
+        self.location_combo.addItem("Add new location...")
+        self.location_combo.activated.connect(lambda idx: self.handle_add_new_option(self.location_combo, 'location'))
+
+    def update_bet_types(self) -> None:
+        sport_game_id = self.selected_sport_game_id
+        self.bet_type_combo.clear()
+        if not sport_game_id:
+            return
+        bet_types = self.db.get_bet_types_for_sport_game(sport_game_id)
+        for _, name, description in bet_types:
+            self.bet_type_combo.addItem(name)
+            self.bet_type_combo.setItemData(self.bet_type_combo.count() - 1, description, Qt.ToolTipRole)
+
+    def handle_add_new_option(self, combo: QComboBox, option_type: str):
+        text_map = {
+            'team': "Enter new team name:",
+            'tournament': "Enter new tournament name:",
+            'location': "Enter new location name:",
+        }
+        if combo.currentText().startswith("Add new"):
+            text, ok = QInputDialog.getText(self, "Add New", text_map[option_type])
+            if ok and text.strip():
+                sport_game_id = self.selected_sport_game_id
+                if option_type == 'team':
+                    self.db.add_team(text.strip(), sport_game_id)
+                    self.load_dropdown_data()
+                    combo.setCurrentText(text.strip())
+                elif option_type == 'tournament':
+                    self.db.add_tournament(text.strip(), sport_game_id)
+                    self.load_dropdown_data()
+                    self.tournament_combo.setCurrentText(text.strip())
+                elif option_type == 'location':
+                    self.db.add_location(text.strip(), sport_game_id)
+                    self.load_dropdown_data()
+                    self.location_combo.setCurrentText(text.strip())
+
+    def update_bet_details(self) -> None:
+        sport_game_id = self.selected_sport_game_id
+        bet_type_name = self.bet_type_combo.currentText()
+        bet_type_id = self.db.get_bet_type_id(bet_type_name, sport_game_id) if sport_game_id else None
+        self.bet_input.setVisible(False)
+        self.bet_combo.setVisible(False)
+        options = self.db.get_bet_type_options(bet_type_id) if bet_type_id else []
+        if options:
+            option_type = options[0][1]
+            if option_type == 'dropdown':
+                self.bet_combo.setVisible(True)
+                self.bet_combo.clear()
+                import json
+                all_opts = []
+                for opt in options:
+                    if opt[2]:
+                        try:
+                            all_opts.extend(json.loads(opt[2]))
+                        except Exception:
+                            pass
+                all_opts = list(dict.fromkeys(all_opts))
+                for opt in all_opts:
+                    self.bet_combo.addItem(opt)
+            elif option_type == 'text':
+                self.bet_input.setVisible(True)
+                placeholder = options[0][3] if options[0][3] else "Enter bet option"
+                self.bet_input.setPlaceholderText(placeholder)
+        else:
+            self.bet_input.setVisible(True)
+            self.bet_input.setPlaceholderText("Enter bet option")
 
     def toggle_cash_out_amount(self, result: str) -> None:
         """Show/hide cash out amount field based on result selection"""
@@ -538,7 +621,13 @@ class NewBetPage(QWidget):
         # Validate required fields
         if not self.validate_form():
             return
-            
+
+        # Determine bet_option from the visible input
+        if self.bet_combo.isVisible():
+            bet_option = self.bet_combo.currentText()
+        else:
+            bet_option = self.bet_input.text()
+
         # Create bet data
         bet_data = {
             'category': self.category_combo.currentText(),
@@ -548,8 +637,7 @@ class NewBetPage(QWidget):
             'tournament': self.tournament_combo.currentText(),
             'location': self.location_combo.currentText(),
             'bet_type': self.bet_type_combo.currentText(),
-            'target': self.target_combo.currentText(),
-            'pick': self.pick_input.text(),
+            'bet_option': bet_option,
             'line': self.line_input.value(),
             'odds': self.odds_input.value(),
             'stake': self.stake_input.value(),
@@ -593,20 +681,31 @@ class NewBetPage(QWidget):
             (self.tournament_combo, "Tournament"),
             (self.team_a_combo, "Team A"),
             (self.team_b_combo, "Team B"),
-            (self.target_combo, "Target"),
-            (self.pick_input, "Pick"),
             (self.odds_input, "Odds"),
             (self.stake_input, "Stake")
         ]
-        
+
         for field, name in required_fields:
             if isinstance(field, QLineEdit) and not field.text().strip():
+                self.show_error(f"{name} is required")
+                return False
+            elif isinstance(field, QComboBox) and not field.currentText().strip():
                 self.show_error(f"{name} is required")
                 return False
             elif isinstance(field, QDoubleSpinBox) and field.value() <= 0:
                 self.show_error(f"{name} must be greater than 0")
                 return False
-                
+
+        # Validate Bet field (either bet_combo or bet_input)
+        if self.bet_combo.isVisible():
+            if not self.bet_combo.currentText().strip():
+                self.show_error("Bet option is required")
+                return False
+        elif self.bet_input.isVisible():
+            if not self.bet_input.text().strip():
+                self.show_error("Bet option is required")
+                return False
+
         return True
         
     def show_error(self, message: str) -> None:
@@ -622,8 +721,8 @@ class NewBetPage(QWidget):
         self.team_b_combo.setCurrentText("")
         self.location_combo.setCurrentText("")
         self.bet_type_combo.setCurrentIndex(0)
-        self.target_combo.clear()
-        self.pick_input.clear()
+        self.bet_input.clear()
+        self.bet_combo.clear()
         self.line_input.setValue(0.0)
         self.prematch_radio.setChecked(True)
         self.odds_input.setValue(1.0)
@@ -690,114 +789,6 @@ class NewBetPage(QWidget):
         
         # Update preview
         self.preview_content.setText("\n".join(preview_text))
-
-    def load_dropdown_data(self) -> None:
-        """Load data for dropdowns from database and static data"""
-        # Get current sport/game
-        sport_game = self.sport_game_combo.currentText()
-        if not sport_game:
-            return
-
-        # Clear existing items
-        self.team_a_combo.clear()
-        self.team_b_combo.clear()
-        self.tournament_combo.clear()
-        self.location_combo.clear()
-
-        # Load static data first
-        static_teams = BetData.get_teams(sport_game)
-        static_tournaments = BetData.get_tournaments(sport_game)
-        static_locations = BetData.get_locations(sport_game)
-
-        # Add static teams
-        for team in static_teams:
-            self.team_a_combo.addItem(team)
-            self.team_b_combo.addItem(team)
-
-        # Add static tournaments
-        for tournament in static_tournaments:
-            self.tournament_combo.addItem(tournament)
-
-        # Add static locations
-        for location in static_locations:
-            self.location_combo.addItem(location)
-
-        # Load and add database data
-        teams = self.db.get_all_teams()
-        for _, name in teams:
-            if not any(name == self.team_a_combo.itemText(i) for i in range(self.team_a_combo.count())):
-                self.team_a_combo.addItem(name)
-                self.team_b_combo.addItem(name)
-
-        tournaments = self.db.get_all_tournaments()
-        for _, name in tournaments:
-            if not any(name == self.tournament_combo.itemText(i) for i in range(self.tournament_combo.count())):
-                self.tournament_combo.addItem(name)
-
-        locations = self.db.get_all_locations()
-        for _, name in locations:
-            if not any(name == self.location_combo.itemText(i) for i in range(self.location_combo.count())):
-                self.location_combo.addItem(name)
-
-    def update_bet_types(self) -> None:
-        """Update bet types based on selected category and sport/game"""
-        category = self.category_combo.currentText()
-        sport_game = self.sport_game_combo.currentText()
-        
-        self.bet_type_combo.clear()
-        
-        bet_types = BetData.get_bet_types(sport_game)
-        for bet_type, description in bet_types:
-            self.bet_type_combo.addItem(bet_type)
-            self.bet_type_combo.setItemData(self.bet_type_combo.count() - 1, description, Qt.ToolTipRole)
-
-    def update_target_options(self) -> None:
-        """Update target options based on selected bet type and sport/game"""
-        sport_game = self.sport_game_combo.currentText()
-        bet_type = self.bet_type_combo.currentText()
-        
-        self.target_combo.clear()
-        target_options = BetData.get_target_options(sport_game, bet_type)
-        
-        if target_options:
-            self.target_combo.addItems(target_options)
-            self.target_combo.setEditable(False)  # Disable custom input when options are available
-        else:
-            self.target_combo.setEditable(True)  # Enable custom input when no options are available
-            self.target_combo.setPlaceholderText("Enter target (e.g., Full Time, First Half, Map 1)")
-
-    def update_bet_details(self) -> None:
-        """Update bet details fields based on selected bet type"""
-        sport_game = self.sport_game_combo.currentText()
-        bet_type = self.bet_type_combo.currentText()
-        
-        # Get section requirements for this bet type
-        requirements = BetData.get_section_requirements(sport_game, bet_type)
-        
-        # Update section visibility
-        self.location_combo.setVisible(requirements["location"])
-        self.location_label.setVisible(requirements["location"])
-        
-        self.line_input.setVisible(requirements["line"])
-        self.line_input.setPrefix("Line: " if requirements["line"] else "")
-        
-        self.bet_label.setVisible(requirements["bet"])
-        self.bet_input.setVisible(False)
-        self.bet_combo.setVisible(False)
-        
-        # Get bet options
-        bet_options = BetData.get_bet_options(sport_game, bet_type)
-        
-        if bet_options["type"] == "dropdown":
-            self.bet_combo.setVisible(True)
-            self.bet_combo.clear()
-            self.bet_combo.addItems(bet_options["options"])
-        else:
-            self.bet_input.setVisible(True)
-            self.bet_input.setPlaceholderText(bet_options["placeholder"])
-        
-        # Update preview to reflect changes
-        self.validate_and_update_preview()
 
     def __del__(self):
         """Cleanup when the page is destroyed"""

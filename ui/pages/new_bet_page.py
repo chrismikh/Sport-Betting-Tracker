@@ -585,6 +585,11 @@ class NewBetPage(QWidget):
         self.bet_input.setVisible(False)
         self.bet_combo.setVisible(False)
         options = self.db.get_bet_type_options(bet_type_id) if bet_type_id else []
+        # Disconnect previous signal to avoid multiple connections
+        try:
+            self.bet_combo.currentTextChanged.disconnect(self.update_line_visibility)
+        except Exception:
+            pass
         if options:
             option_type = options[0][1]
             if option_type == 'dropdown':
@@ -601,6 +606,8 @@ class NewBetPage(QWidget):
                 all_opts = list(dict.fromkeys(all_opts))
                 for opt in all_opts:
                     self.bet_combo.addItem(opt)
+                # Connect signal for dynamic line visibility
+                self.bet_combo.currentTextChanged.connect(self.update_line_visibility)
             elif option_type == 'text':
                 self.bet_input.setVisible(True)
                 placeholder = options[0][3] if options[0][3] else "Enter bet option"
@@ -608,6 +615,23 @@ class NewBetPage(QWidget):
         else:
             self.bet_input.setVisible(True)
             self.bet_input.setPlaceholderText("Enter bet option")
+        # Update line visibility after setting up bet option widgets
+        self.update_line_visibility()
+
+    def update_line_visibility(self):
+        """Show/hide the Line input and label based on bet type or bet option."""
+        bet_type_name = self.bet_type_combo.currentText().lower()
+        show_line = False
+        # Check bet type name
+        if ("over/under" in bet_type_name) or ("over" in bet_type_name) or ("under" in bet_type_name) or ("handicap" in bet_type_name):
+            show_line = True
+        # Check bet option if dropdown is visible
+        elif self.bet_combo.isVisible():
+            bet_option = self.bet_combo.currentText().lower()
+            if bet_option in ("over", "under"):
+                show_line = True
+        self.line_label.setVisible(show_line)
+        self.line_input.setVisible(show_line)
 
     def toggle_cash_out_amount(self, result: str) -> None:
         """Show/hide cash out amount field based on result selection"""
@@ -730,6 +754,9 @@ class NewBetPage(QWidget):
         self.result_combo.setCurrentIndex(0)
         self.cash_out_amount.setValue(0.01)
         self.cash_out_container.setVisible(False)
+        # Hide line input and label by default
+        self.line_label.setVisible(False)
+        self.line_input.setVisible(False)
 
     def validate_and_update_preview(self) -> None:
         """Validate inputs and update preview"""
